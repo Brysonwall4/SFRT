@@ -1,5 +1,5 @@
 #### Radiation Therapy
-# Geometric Pptimization of Dose Distribution in SFRT
+# Geometric Optimization of Dose Distribution in SFRT
 
 This repository contains the code accompanying the following article:
 
