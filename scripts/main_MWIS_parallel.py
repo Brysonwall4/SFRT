@@ -108,15 +108,57 @@ def interpolate_dose(point, center, ellipsoids, doses):
             return doses[i + 1] + dose_diff * (dist_outer) / (dist_outer + dist_inner) 
     return doses[0] if inside[0] else doses[-1]
 #
-def find_mid_point(v,u):
+def find_point_between(v, u, t):
     dir_x = v[0] - u[0]
     dir_y = v[1] - u[1]
     dir_z = v[2] - u[2]
-    mid = [u[0]+0.5*dir_x, u[1]+0.5*dir_y, u[2]+0.5*dir_z]
-    return mid
+    point = [u[0] + t * dir_x, u[1] + t * dir_y, u[2] + t * dir_z]
+    return point
+
+def find_mid_point(v, u):
+    return find_point_between(v, u, 0.5)
+# New solution on finding better valley dose
+def find_min_valley_point_on_line(v, u, num_samples=11):
+    distance = math.sqrt((v[0] - u[0]) ** 2 + (v[1] - u[1]) ** 2 + (v[2] - u[2]) ** 2)
+
+    if distance == 0:
+        point = find_mid_point(v, u)
+        dose_at_point_v = interpolate_dose(point, [v[0], v[1], v[2]], ellipsoids[v[3]], doses)
+        dose_at_point_u = interpolate_dose(point, [u[0], u[1], u[2]], ellipsoids[u[3]], doses)
+        return point, dose_at_point_v + dose_at_point_u
+
+    # Search between the two sphere surfaces, not inside the sphere centers.
+    t_start = radii[v[3]] / distance
+    t_end = 1 - (radii[u[3]] / distance)
+
+    if t_start >= t_end:
+        point = find_mid_point(v, u)
+        dose_at_point_v = interpolate_dose(point, [v[0], v[1], v[2]], ellipsoids[v[3]], doses)
+        dose_at_point_u = interpolate_dose(point, [u[0], u[1], u[2]], ellipsoids[u[3]], doses)
+        return point, dose_at_point_v + dose_at_point_u
+
+    best_point = None
+    best_dose = float('inf')
+
+    for t in np.linspace(t_start, t_end, num_samples):
+        point = find_point_between(v, u, t)
+
+        dose_at_point_v = interpolate_dose(point, [v[0], v[1], v[2]], ellipsoids[v[3]], doses)
+        dose_at_point_u = interpolate_dose(point, [u[0], u[1], u[2]], ellipsoids[u[3]], doses)
+
+        total_dose = dose_at_point_v + dose_at_point_u
+
+        if total_dose < best_dose:
+            best_dose = total_dose
+            best_point = point
+
+    return best_point, best_dose
 #
 def const_gen(i):
+    global valley_shift_count, max_valley_shift
     temp = []
+    if i % 100 == 0:
+        print('Processing vertex '+str(i)+' of '+str(N))
     for j in range(i+1,N):
         v = vertices[i]
         u = vertices[j]
@@ -124,11 +166,30 @@ def const_gen(i):
         if distance <= radii[v[3]] + radii[u[3]]:
             temp.append([i,j])
         else:
-            point = find_mid_point(v,u)
-            dose_at_point_v = interpolate_dose(point, [v[0],v[1],v[2]], ellipsoids[v[3]], doses)
-            dose_at_point_u = interpolate_dose(point, [u[0],u[1],u[2]], ellipsoids[u[3]], doses)
-            if (dose_at_point_v + dose_at_point_u > valley_dose):
+            midpoint = find_mid_point(v, u)
+            midpoint_dose_v = interpolate_dose(midpoint, [v[0], v[1], v[2]], ellipsoids[v[3]], doses)
+            midpoint_dose_u = interpolate_dose(midpoint, [u[0], u[1], u[2]], ellipsoids[u[3]], doses)
+            midpoint_total_dose = midpoint_dose_v + midpoint_dose_u
+
+            # Only run the slower line search when the midpoint dose is close to the valley threshold.
+            if abs(midpoint_total_dose - valley_dose) <= 0.10 * valley_dose: #Only tests with threshold is within 10%
+                point, minimum_valley_dose = find_min_valley_point_on_line(v, u)
+        
+                valley_shift = math.sqrt(
+                    (point[0] - midpoint[0]) ** 2 +
+                    (point[1] - midpoint[1]) ** 2 +
+                    (point[2] - midpoint[2]) ** 2
+                )
+
+                if valley_shift > 1e-6:
+                    valley_shift_count += 1
+                    max_valley_shift = max(max_valley_shift, valley_shift)
+            else:
+                minimum_valley_dose = midpoint_total_dose
+
+            if minimum_valley_dose > valley_dose:
                 temp.append([i,j])
+
     return temp
 
 
@@ -139,6 +200,8 @@ if __name__ == "__main__":
     startTime = time.time()
     #
     edges = []
+    valley_shift_count = 0 # Added counters
+    max_valley_shift = 0
     try:
         with concurrent.futures.ProcessPoolExecutor() as executor:
             futures = [executor.submit(const_gen, i) for i in range(N-1)]
@@ -170,12 +233,14 @@ if __name__ == "__main__":
     print("Model built in:", time.time() - startTime, "seconds")
     ## SOLVE
     solTime = time.time()
+    print("Number of Edges = "+str(len(edges)))
+    print('Valley points shifted from midpoint = '+str(valley_shift_count))
+    print('Maximum valley shift distance = '+str(max_valley_shift))
     status = tumorIS.optimize()
     print("Model Solved in:", time.time() - solTime, "seconds")
     #tumorIS.write("model.lp")
     ## OUTPUT
-    print("Calibrated Valley Dose Factor = "+str(calib_factor))
-    print("Number of Edges = "+str(len(edges))) 
+    print("Calibrated Valley Dose Factor = "+str(calib_factor)) 
     print('=============================================')
     print('Objective value = '+str(tumorIS.getObjective().getValue()))
     print('=============================================')
