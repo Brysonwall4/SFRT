@@ -155,9 +155,14 @@ def find_min_valley_point_on_line(v, u, num_samples=11):
     return best_point, best_dose
 #
 def const_gen(i):
-    global valley_shift_count, max_valley_shift
     temp = []
-    if i % 100 == 0:
+    local_line_search_count = 0 # Diagnostic counters for valley-dose line-search results
+    local_midpoint_conflict_line_safe = 0
+    local_midpoint_safe_line_conflict = 0
+    local_valley_shift_count = 0
+    local_max_valley_shift = 0
+    local_max_valley_dose_error = 0
+    if i % 100 == 0: # Time stamp to see how fast program runs
         print('Processing vertex '+str(i)+' of '+str(N))
     for j in range(i+1,N):
         v = vertices[i]
@@ -172,9 +177,22 @@ def const_gen(i):
             midpoint_total_dose = midpoint_dose_v + midpoint_dose_u
 
             # Only run the slower line search when the midpoint dose is close to the valley threshold.
-            if abs(midpoint_total_dose - valley_dose) <= 0.10 * valley_dose: #Only tests with threshold is within 10%
-                point, minimum_valley_dose = find_min_valley_point_on_line(v, u)
-        
+            midpoint_is_conflict = midpoint_total_dose > valley_dose
+
+            if abs(midpoint_total_dose - valley_dose) <= 0.10 * valley_dose: # Only when valley doses are within 10%
+                point, minimum_valley_dose = find_min_valley_point_on_line(v, u, num_samples=11)
+                local_line_search_count += 1
+
+                line_search_is_conflict = minimum_valley_dose > valley_dose
+
+                if midpoint_is_conflict and not line_search_is_conflict:
+                    local_midpoint_conflict_line_safe += 1
+                elif not midpoint_is_conflict and line_search_is_conflict:
+                    local_midpoint_safe_line_conflict += 1
+
+                dose_error = midpoint_total_dose - minimum_valley_dose
+                local_max_valley_dose_error = max(local_max_valley_dose_error, abs(dose_error))
+
                 valley_shift = math.sqrt(
                     (point[0] - midpoint[0]) ** 2 +
                     (point[1] - midpoint[1]) ** 2 +
@@ -182,16 +200,24 @@ def const_gen(i):
                 )
 
                 if valley_shift > 1e-6:
-                    valley_shift_count += 1
-                    max_valley_shift = max(max_valley_shift, valley_shift)
+                    local_valley_shift_count += 1
+                    local_max_valley_shift = max(local_max_valley_shift, valley_shift)
             else:
                 minimum_valley_dose = midpoint_total_dose
 
             if minimum_valley_dose > valley_dose:
                 temp.append([i,j])
 
-    return temp
+    stats = {
+        'line_search_count': local_line_search_count,
+        'midpoint_conflict_line_safe': local_midpoint_conflict_line_safe,
+        'midpoint_safe_line_conflict': local_midpoint_safe_line_conflict,
+        'valley_shift_count': local_valley_shift_count,
+        'max_valley_shift': local_max_valley_shift,
+        'max_valley_dose_error': local_max_valley_dose_error
+    }
 
+    return temp, stats
 
 #
 
@@ -200,18 +226,31 @@ if __name__ == "__main__":
     startTime = time.time()
     #
     edges = []
-    valley_shift_count = 0 # Added counters
+    # Combined diagnostic counters from all parallel valley-dose checks
+    line_search_count = 0
+    midpoint_conflict_line_safe = 0
+    midpoint_safe_line_conflict = 0
+    valley_shift_count = 0
     max_valley_shift = 0
+    max_valley_dose_error = 0
+
     try:
         with concurrent.futures.ProcessPoolExecutor() as executor:
             futures = [executor.submit(const_gen, i) for i in range(N-1)]
             AllResults = [future.result() for future in concurrent.futures.as_completed(futures)]
     except Exception as e:
         print(f"An exception occurred: {e}")
-    for i in range(N-1):
-        eachResult = AllResults[i]
-        for ele in eachResult:
+
+    for edge_list, stats in AllResults:
+        for ele in edge_list:
             edges.append(ele)
+
+        line_search_count += stats['line_search_count']
+        midpoint_conflict_line_safe += stats['midpoint_conflict_line_safe']
+        midpoint_safe_line_conflict += stats['midpoint_safe_line_conflict']
+        valley_shift_count += stats['valley_shift_count']
+        max_valley_shift = max(max_valley_shift, stats['max_valley_shift'])
+        max_valley_dose_error = max(max_valley_dose_error, stats['max_valley_dose_error'])
     #
     tumorIS = Model()
     tumorIS.Params.TIME_LIMIT = 1*3600
@@ -233,9 +272,13 @@ if __name__ == "__main__":
     print("Model built in:", time.time() - startTime, "seconds")
     ## SOLVE
     solTime = time.time()
-    print("Number of Edges = "+str(len(edges)))
-    print('Valley points shifted from midpoint = '+str(valley_shift_count))
+    print('Number of Edges = '+str(len(edges)))
+    print('Pairs checked with sampled valley search = '+str(line_search_count)) # Pairs where the midpoint dose was within 10% of the valley-dose threshold
+    print('Midpoint conflict but line search safe = '+str(midpoint_conflict_line_safe)) # Pairs that midpoint marked as conflicts, but sampled line search found acceptable
+    print('Midpoint safe but line search conflict = '+str(midpoint_safe_line_conflict)) # Pairs that midpoint marked as acceptable, but sampled line search found conflicting
+    print('Valley points shifted from midpoint = '+str(valley_shift_count)) # Number of checked pairs where the sampled minimum valley-dose point was not at the midpoint
     print('Maximum valley shift distance = '+str(max_valley_shift))
+    print('Maximum midpoint valley dose error = '+str(max_valley_dose_error))
     status = tumorIS.optimize()
     print("Model Solved in:", time.time() - solTime, "seconds")
     #tumorIS.write("model.lp")
