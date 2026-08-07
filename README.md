@@ -34,12 +34,12 @@ This gives a better estimate of the true valley-dose location, especially when c
 
 ## Results
 
-Original midpoint-only method: Number of Edges = 5416969
+Original midpoint-only method: Number of Edges = 5,416,969
 
-Updated sampled valley-dose method: Number of Edges = 5414583
+Updated sampled valley-dose method: Number of Edges = 5,414,583
 
 The updated method produced 2,386 fewer conflict edges overall.
 
-Additional diagnostics: Pairs checked with sampled valley search = 259494; Midpoint conflict but line search safe = 5955; Midpoint safe but line search conflict = 1632; Valley points shifted from midpoint = 132068; Maximum valley shift distance = 0.6828506932918699; Maximum midpoint valley dose error = 7.910189058059412.
+Additional diagnostics: Pairs checked with sampled valley search = 259,494; Midpoint conflict but line search safe = 5,955; Midpoint safe but line search conflict = 1,632; Valley points shifted from midpoint = 132,068; Maximum valley shift distance = 0.6829; Maximum midpoint valley dose error = 7.91.
 
 These results show that the midpoint assumption is not always accurate. The sampled line-search method changed the conflict decision for 7,587 candidate pairs and found that the minimum valley-dose point shifted away from the midpoint in 132,068 checked pairs.
