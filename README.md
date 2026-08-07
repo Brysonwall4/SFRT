@@ -3,7 +3,7 @@
 
 This repository contains the code accompanying the following article:
 
-> S. Hosseinian, N. Kuma, V. Takiar, and A. Frankart. [Geometric Optimization of Dose Distribution in Spatially Fractionated Radiation Therapy.](https://doi.org/10.1088/1361-6560/ade7d2) Physics in Medicine & Biology 70 (2025): 165007.
+> S. Hosseinian, N. Kuma, V. Takiar, and A. Frankart. [Geometric Optimization of Dose Distribution in Spatially Fractionated Radiation Therapy.](https://iopscience.iop.org/article/10.1088/1361-6560/adf58f) Physics in Medicine & Biology 70 (2025): 165007.
 
 ## Updated Version: Boundary Densification
 
