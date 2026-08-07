@@ -5,43 +5,41 @@ This repository contains the code accompanying the following article:
 
 > S. Hosseinian, N. Kuma, V. Takiar, and A. Frankart. [Geometric Optimization of Dose Distribution in Spatially Fractionated Radiation Therapy.](https://doi.org/10.1088/1361-6560/ade7d2) Physics in Medicine & Biology 70 (2025): 165007.
 
-## Updated Version: Polygon Boundary Filtering
+## Updated Version: Boundary Cleanup and Valley Dose Improvement
 
-This branch contains an updated version of the candidate-generation workflow in `scripts/main_discretize_single.ipynb`.
+This branch contains two main updates to the original SFRT workflow.
 
-The original method relied on tumor boundary points from each CT slice and used a row-wise minimum/maximum boundary check to decide where candidate sphere centers could be placed. While that approach worked for simpler tumor shapes, testing on additional tumor geometries showed that it can fail for more irregular or concave contours.
+The updates are located mainly in:
 
-## Boundary Densification
+- `scripts/main_discretize_single.ipynb`
+- `scripts/main_MWIS_parallel.py`
 
-The first improvement tested was boundary densification. This interpolates additional points between neighboring tumor boundary points on each slice, making the originally dotted tumor contour more continuous before candidate locations are generated.
+## 1. Tumor Boundary Cleanup
 
-Boundary densification improved the original tumor case by reducing boundary-gap effects. However, when tested on additional geometries, especially the CJ tumor case, the row-based method could still allow some candidate points to appear outside the actual tumor boundary.
+The polygon boundary method was already useful for keeping candidate sphere centers inside the tumor contour. However, some irregular tumor slices showed extra shading or messy boundary connections.
 
-## Polygon-Based Candidate Filtering
+The issue came from the boundary densification method. The earlier method sorted boundary points by angle around the slice centroid, which could accidentally connect non-adjacent points in concave or irregular tumor shapes.
 
-This branch improves the candidate-generation step by adding a polygon-based containment check.
+This version fixes that by preserving the original contour point order from the CSV file. The code then interpolates between consecutive contour points in that original order.
 
-For each tumor slice, the code builds a filled polygon representation of the tumor boundary. A candidate sphere center is only accepted if it falls inside that polygon. This avoids the weakness of the row-wise minimum/maximum method, where a point can fall between the left and right boundary limits but still lie outside the true contour.
+This produces cleaner tumor boundary plots and reduces overshading while keeping the polygon-based candidate filtering method.
 
-## Multi-Tumor Robustness Testing
+## 2. Valley Dose Improvement
 
-The polygon method was tested on six tumor geometries:
+The original graph-construction code assumed that the minimum valley dose between two candidate spheres occurs at the exact midpoint between their centers.
 
-- `BL_GTV_GRID.csv`
-- `CH_GTV_GRID.csv`
-- `CJ_GTV_GRID.csv`
-- `JM_GTV_GRID.csv`
-- `SR_GTV_GRID.csv`
-- `TK_GTV_GRID.csv`
+This branch improves that by adding a sampled valley-dose line search. When the midpoint dose is within 10% of the valley-dose threshold, the code samples points along the line between the two candidates and finds the lowest combined dose point.
 
-Across these tests, the polygon-based version performed the best. In the CJ case, the boundary-densification-only method still allowed candidate points outside the tumor boundary, while the polygon method kept the candidates inside the actual tumor contour.
+This gives a better estimate of the true valley-dose location, especially when candidate spheres have different radii or dose falloff behavior.
 
-## Conclusion
+## Results
 
-Boundary densification helps make the dotted tumor boundary more continuous, but polygon-based containment is the more robust candidate-filtering method across different tumor geometries.
+Original midpoint-only method: Number of Edges = 5416969
 
-This version should be treated as the stronger updated approach because it checks whether candidate sphere centers are truly inside the tumor boundary, rather than relying only on row-wise minimum and maximum boundary values.
+Updated sampled valley-dose method: Number of Edges = 5414583
 
-## Contribution Note
+The updated method produced 2,386 fewer conflict edges overall.
 
-Bryson Wall assisted with this updated code version, including boundary densification testing, polygon-based candidate filtering, and multi-tumor robustness testing.
+Additional diagnostics: Pairs checked with sampled valley search = 259494; Midpoint conflict but line search safe = 5955; Midpoint safe but line search conflict = 1632; Valley points shifted from midpoint = 132068; Maximum valley shift distance = 0.6828506932918699; Maximum midpoint valley dose error = 7.910189058059412.
+
+These results show that the midpoint assumption is not always accurate. The sampled line-search method changed the conflict decision for 7,587 candidate pairs and found that the minimum valley-dose point shifted away from the midpoint in 132,068 checked pairs.
